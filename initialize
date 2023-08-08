@@ -1,0 +1,157 @@
+#!/bin/sh
+
+#Create user gerger
+pw user add -n gerger -c 'Gerger' -d /home/gerger -G wheel -m -s /bin/sh
+echo "7" | pw usermod -n gerger -h 0
+
+#install packages
+pkg install -y git vim bastille curl doas haproxy python311
+
+#---------------------------------
+# configure doas
+#---------------------------------
+cat <<EOF>/usr/local/etc/doas.conf
+permit nopass :wheel
+EOF
+
+#---------------------------------
+# configure pf for bastille jails
+#---------------------------------
+PF_CONF=/etc/pf.conf
+if test -f $PF_CONF; then
+  echo "/etc/pf.conf already exists"
+else
+cat <<EOF>/etc/pf.conf
+ext_if="`ifconfig -l | cut -w -f 1`"
+
+set block-policy return
+scrub in on \$ext_if all fragment reassemble
+set skip on lo
+
+table <jails> persist
+nat on \$ext_if from <jails> to any -> (\$ext_if:0)
+rdr-anchor "rdr/*"
+
+block in all
+pass out quick keep state
+pass in inet proto tcp from any to any port ssh flags S/SA keep state
+pass in inet proto tcp from any to any port bootps flags S/SA keep state
+pass in inet proto tcp from any to any port 80 flags S/SA keep state
+EOF
+fi
+
+sysrc pf_enable=YES
+
+
+#-----------------------------------
+#configure haproxy
+#-----------------------------------
+HAPROXY_CONF=/usr/local/etc/haproxy,conf
+if test -f $HAPROXY_CONF; then
+    echo $HAPROXY_CONF "already exists"
+else
+  cat <<EOF>/usr/local/etc/haproxy.conf
+  global
+      daemon
+      maxconn 4096
+      log 127.0.0.1:514 local1 info
+
+  defaults
+    log global
+    mode http
+    timeout client 10s
+    timeout connect 5s
+    timeout server 10s
+    timeout http-request 10s
+
+    stats enable
+    stats uri /haproxy?stats
+    stats realm Statistics
+    stats auth haproxy_admin:supersecretpassword
+
+  frontend `hostname`
+      bind :80
+#     default_backend web_servers 
+
+      errorfile 503 /usr/local/etc/haproxy/static/index.static.html
+
+      acl host_vanilla hdr(host) -i vanilla.`hostname`
+
+      use_backend vanilla_be if host_vanilla
+
+  backend host_vanilla 
+      server node2 10.17.89.1:8080
+EOF
+fi
+
+sysrc haproxy_enable=YES
+
+#-----------------------------------
+# configure and bootstrap bastille
+#-----------------------------------
+if ! command -v bastille; then
+	echo "Bastille not found."
+else
+	echo "Configuring Bastille..."
+
+	sysrc cloned_interfaces+=lo1
+	sysrc ifconfig_lo1_name=bastille0
+	service netif cloneup
+
+	sysrc -f /usr/local/etc/bastille/bastille.conf bastille_zfs_enable=YES
+	sysrc -f /usr/local/etc/bastille/bastille.conf bastille_zfs_zpool=zroot
+	sysrc bastille_enable=YES
+
+	bastille bootstrap `uname -r` update	
+fi
+
+
+
+cat <<EOF>/home/gerger/.aliases
+alias ll='ls -lahG'
+alias x=exit
+alias c=clear
+alias viha='doas vim /usr/local/etc/haproxy.conf'
+alias testha='haproxy -f /usr/local/etc/haproxy.conf -c'
+alias reha='doas service haproxy restart'
+alias vipf='doas vim /etc/pf.conf'
+alias repf='doas service pf restart'
+alias vish='vim /home/gerger/.shrc'
+alias .sh='. /home/gerger/.shrc'
+EOF
+echo ". /home/gerger/.aliases" >> /home/gerger/.shrc
+
+
+if ! command -v python39; then
+	pkg install -y python39
+	ln -s `which python3.9` /usr/local/bin/python
+else
+	ln -s `which python3.9` /usr/local/bin/python
+fi
+
+python - <<'EOF'
+print ('adding pkg aliases')
+conf='/usr/local/etc/pkg.conf'
+contents=[]
+newAliases = '''
+  ii: install -y
+  i: install
+  s: search
+'''
+with open(conf, 'r') as f:
+    for l in f.readlines():
+        ls=l.strip()
+        if ls.startswith('ALIAS') and ':' in ls and ls.endswith('{'):
+            contents.append(l.rstrip())
+            for nl in newAliases.split('\n'):
+                if len(nl) > 0:
+                    if not nl.endswith(','):
+                        nl += ','
+                    contents.append(nl)
+        else:
+            contents.append(l.rstrip())
+
+with open(conf, 'w') as f:
+    contents='\n'.join(contents) + '\n'
+    f.write(contents)
+
