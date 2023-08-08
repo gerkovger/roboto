@@ -155,3 +155,6 @@ with open(conf, 'w') as f:
     contents='\n'.join(contents) + '\n'
     f.write(contents)
 
+EOF
+
+service pf start
