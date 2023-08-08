@@ -73,13 +73,13 @@ else
       bind :80
 #     default_backend web_servers 
 
-      errorfile 503 /usr/local/etc/haproxy/static/index.static.html
+#     errorfile 503 /usr/local/etc/haproxy/static/index.static.html
 
       acl host_vanilla hdr(host) -i vanilla.`hostname`
 
       use_backend vanilla_be if host_vanilla
 
-  backend host_vanilla 
+  backend vanilla_be
       server node2 10.17.89.1:8080
 EOF
 fi
