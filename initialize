@@ -118,6 +118,7 @@ alias vipf='doas vim /etc/pf.conf'
 alias repf='doas service pf restart'
 alias vish='vim /home/gerger/.shrc'
 alias .sh='. /home/gerger/.shrc'
+alias jpath='jls | cut -w -f 5 | grep'
 EOF
 echo ". /home/gerger/.aliases" >> /home/gerger/.shrc
 
