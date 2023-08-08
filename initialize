@@ -122,6 +122,7 @@ alias jpath='jls | cut -w -f 5 | grep'
 EOF
 echo ". /home/gerger/.aliases" >> /home/gerger/.shrc
 
+chown gerger /home/gerger/.aliases
 
 if ! command -v python39; then
 	pkg install -y python39
